@@ -1,103 +1,65 @@
 package com.enterprise.audit.logging.example;
 
 import com.enterprise.audit.logging.config.AuditConfiguration;
-import com.enterprise.audit.logging.exception.AuditLoggingException;
 import com.enterprise.audit.logging.model.AuditContext;
 import com.enterprise.audit.logging.model.AuditEvent;
 import com.enterprise.audit.logging.model.AuditResult;
 import com.enterprise.audit.logging.service.AuditLogger;
-import com.enterprise.audit.logging.service.FileSystemAuditLogger;
+import com.enterprise.audit.logging.service.StreamableAuditLogger;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 
 /**
- * Example class demonstrating how to use the Enterprise Audit Logging Library.
- * This example shows various ways to integrate audit logging into your application.
+ * Example class demonstrating how to use the Enterprise Audit Logging Library (v2, Java 21+).
  */
 public class AuditLoggingExample {
 
-    public static void main(String[] args) {
-        try {
-            // Example 1: Basic usage with default configuration
-            basicUsageExample();
-            
-            // Example 2: Usage with custom configuration
-            customConfigurationExample();
-            
-            // Example 3: Usage with audit context
-            auditContextExample();
-            
-            // Example 4: Advanced usage with detailed events
-            advancedUsageExample();
-            
-        } catch (AuditLoggingException e) {
-            System.err.println("Audit logging error: " + e.getMessage());
-            e.printStackTrace();
-        }
+    public static void main(String[] args) throws ExecutionException, InterruptedException {
+        // Example 1: Basic usage with default configuration
+        basicUsageExample();
+        // Example 2: Usage with custom configuration
+        customConfigurationExample();
+        // Example 3: Usage with audit context
+        auditContextExample();
+        // Example 4: Advanced usage with detailed events
+        advancedUsageExample();
     }
 
-    /**
-     * Example 1: Basic usage with default configuration
-     */
-    public static void basicUsageExample() throws AuditLoggingException {
+    public static void basicUsageExample() throws ExecutionException, InterruptedException {
         System.out.println("=== Basic Usage Example ===");
-        
-        // Create audit logger with default configuration
-        AuditLogger auditLogger = new FileSystemAuditLogger();
-        
+        AuditLogger auditLogger = new StreamableAuditLogger(new AuditConfiguration());
         try {
-            // Log different types of events
-            auditLogger.logSuccess("USER_ACTION", "LOGIN", "/login", "User logged in successfully");
-            auditLogger.logFailure("DATABASE", "QUERY", "users_table", "Connection timeout");
-            auditLogger.logDenied("SECURITY", "ACCESS", "/admin", "Insufficient permissions");
-            
-            System.out.println("Basic audit events logged successfully");
-            
+            auditLogger.logEventAsync(new AuditEvent(null, "USER_ACTION", "user1", null, "App", null, "LOGIN", "/login", AuditResult.SUCCESS, "User logged in successfully", null, null, null, null)).get();
+            auditLogger.logEventAsync(new AuditEvent(null, "DATABASE", "user1", null, "App", null, "QUERY", "users_table", AuditResult.FAILURE, "Connection timeout", null, null, null, null)).get();
+            auditLogger.logEventAsync(new AuditEvent(null, "SECURITY", "user1", null, "App", null, "ACCESS", "/admin", AuditResult.DENIED, "Insufficient permissions", null, null, null, null)).get();
+            System.out.println("Basic audit events logged asynchronously");
         } finally {
             auditLogger.close();
         }
     }
 
-    /**
-     * Example 2: Usage with custom configuration
-     */
-    public static void customConfigurationExample() throws AuditLoggingException {
+    public static void customConfigurationExample() throws ExecutionException, InterruptedException {
         System.out.println("\n=== Custom Configuration Example ===");
-        
-        // Create custom configuration
         Properties props = new Properties();
-        props.setProperty("audit.log.directory", "./custom-audit-logs");
-        props.setProperty("audit.log.file.prefix", "myapp-audit");
-        props.setProperty("audit.log.max.file.size.mb", "50");
-        props.setProperty("audit.log.auto.create.directory", "true");
-        
+        props.setProperty("audit.stream.host", "localhost");
+        props.setProperty("audit.stream.port", "5044");
         AuditConfiguration config = new AuditConfiguration(props);
-        
-        // Create audit logger with custom configuration
-        AuditLogger auditLogger = new FileSystemAuditLogger(config);
-        
+        AuditLogger auditLogger = new StreamableAuditLogger(config);
         try {
-            auditLogger.logSuccess("APPLICATION", "STARTUP", "MyApplication", "Application started successfully");
-            System.out.println("Custom configuration audit event logged successfully");
-            System.out.println("Log file location: " + config.getLogFilePath());
-            
+            auditLogger.logEventAsync(new AuditEvent(null, "APPLICATION", "user2", null, "MyApplication", null, "STARTUP", null, AuditResult.SUCCESS, "Application started successfully", null, null, null, null)).get();
+            System.out.println("Custom configuration audit event logged asynchronously");
         } finally {
             auditLogger.close();
         }
     }
 
-    /**
-     * Example 3: Usage with audit context
-     */
-    public static void auditContextExample() throws AuditLoggingException {
+    public static void auditContextExample() throws ExecutionException, InterruptedException {
         System.out.println("\n=== Audit Context Example ===");
-        
-        AuditLogger auditLogger = new FileSystemAuditLogger();
-        
+        AuditLogger auditLogger = new StreamableAuditLogger(new AuditConfiguration());
         try {
-            // Set audit context - this information will be automatically included in all events
             AuditContext.setUserId("john.doe");
             AuditContext.setSessionId("session_12345");
             AuditContext.setApplication("WebPortal");
@@ -105,52 +67,29 @@ public class AuditLoggingExample {
             AuditContext.setCorrelationId("req_67890");
             AuditContext.setSourceIp("192.168.1.100");
             AuditContext.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-            
-            // Log events - context information will be automatically included
-            auditLogger.logSuccess("USER_ACTION", "VIEW_PROFILE", "/profile/john.doe", "Profile viewed");
-            auditLogger.logSuccess("USER_ACTION", "UPDATE_PROFILE", "/profile/john.doe", "Profile updated");
-            
-            // Change user context
+            auditLogger.logEventAsync(AuditContext.fromContext("USER_ACTION", "VIEW_PROFILE", "/profile/john.doe", AuditResult.SUCCESS, "Profile viewed", null)).get();
+            auditLogger.logEventAsync(AuditContext.fromContext("USER_ACTION", "UPDATE_PROFILE", "/profile/john.doe", AuditResult.SUCCESS, "Profile updated", null)).get();
             AuditContext.setUserId("jane.smith");
             AuditContext.setSessionId("session_54321");
-            auditLogger.logDenied("USER_ACTION", "DELETE_USER", "/admin/users/john.doe", "Not authorized");
-            
-            System.out.println("Context-aware audit events logged successfully");
-            
+            auditLogger.logEventAsync(AuditContext.fromContext("USER_ACTION", "DELETE_USER", "/admin/users/john.doe", AuditResult.DENIED, "Not authorized", null)).get();
+            System.out.println("Context-aware audit events logged asynchronously");
         } finally {
-            // Clear audit context when done
             AuditContext.clear();
             auditLogger.close();
         }
     }
 
-    /**
-     * Example 4: Advanced usage with detailed events
-     */
-    public static void advancedUsageExample() throws AuditLoggingException {
+    public static void advancedUsageExample() throws ExecutionException, InterruptedException {
         System.out.println("\n=== Advanced Usage Example ===");
-        
-        AuditLogger auditLogger = new FileSystemAuditLogger();
-        
+        AuditLogger auditLogger = new StreamableAuditLogger(new AuditConfiguration());
         try {
-            // Example 1: Using the builder pattern for complex events
-            AuditEvent complexEvent = AuditEvent.builder()
-                    .eventType("API_CALL")
-                    .userId("api_user_123")
-                    .sessionId("api_session_456")
-                    .application("RestAPI")
-                    .component("OrderController")
-                    .action("CREATE_ORDER")
-                    .resource("/api/v1/orders")
-                    .result(AuditResult.SUCCESS)
-                    .message("Order created successfully")
-                    .correlationId("order_req_789")
-                    .sourceIp("10.0.0.15")
-                    .userAgent("ApiClient/1.0")
-                    .build();
-            
-            auditLogger.logEvent(complexEvent);
-            
+            // Example 1: Using the record for complex events
+            AuditEvent complexEvent = new AuditEvent(
+                null, "API_CALL", "api_user_123", "api_session_456", "RestAPI", "OrderController",
+                "CREATE_ORDER", "/api/v1/orders", AuditResult.SUCCESS, "Order created successfully",
+                null, "order_req_789", "10.0.0.15", "ApiClient/1.0"
+            );
+            auditLogger.logEventAsync(complexEvent).get();
             // Example 2: Event with additional details
             Map<String, Object> details = new HashMap<>();
             details.put("order_id", "ORD-12345");
@@ -159,91 +98,26 @@ public class AuditLoggingExample {
             details.put("currency", "USD");
             details.put("payment_method", "CREDIT_CARD");
             details.put("processing_time_ms", 145);
-            
-            auditLogger.logEvent("PAYMENT", "PROCESS", "payment_gateway", 
-                               AuditResult.SUCCESS, "Payment processed successfully", details);
-            
+            auditLogger.logEventAsync(new AuditEvent(null, "PAYMENT", "api_user_123", null, "RestAPI", null, "PROCESS", "payment_gateway", AuditResult.SUCCESS, "Payment processed successfully", details, null, null, null)).get();
             // Example 3: Error handling and logging failures
             try {
-                // Simulate a business operation that might fail
                 processOrder("INVALID_ORDER");
             } catch (Exception e) {
                 Map<String, Object> errorDetails = new HashMap<>();
                 errorDetails.put("error_type", e.getClass().getSimpleName());
                 errorDetails.put("error_message", e.getMessage());
                 errorDetails.put("stack_trace_length", e.getStackTrace().length);
-                
-                auditLogger.logEvent("ORDER_PROCESSING", "VALIDATE", "order_validator", 
-                                   AuditResult.FAILURE, "Order validation failed", errorDetails);
+                auditLogger.logEventAsync(new AuditEvent(null, "ORDER_PROCESSING", "api_user_123", null, "RestAPI", null, "VALIDATE", "order_validator", AuditResult.FAILURE, "Order validation failed", errorDetails, null, null, null)).get();
             }
-            
-            System.out.println("Advanced audit events logged successfully");
-            
+            System.out.println("Advanced audit events logged asynchronously");
         } finally {
             auditLogger.close();
         }
     }
 
-    /**
-     * Simulated business method that might throw an exception
-     */
     private static void processOrder(String orderId) throws Exception {
         if ("INVALID_ORDER".equals(orderId)) {
             throw new IllegalArgumentException("Invalid order ID provided");
-        }
-        // Normal processing would happen here
-    }
-
-    /**
-     * Example of how to integrate audit logging into a web application filter or interceptor
-     */
-    public static class WebRequestAuditExample {
-        
-        private final AuditLogger auditLogger;
-        
-        public WebRequestAuditExample() throws AuditLoggingException {
-            this.auditLogger = new FileSystemAuditLogger();
-        }
-        
-        public void auditWebRequest(String userId, String sessionId, String method, 
-                                  String path, int statusCode, long durationMs) {
-            
-            try {
-                // Set request context
-                AuditContext.setUserId(userId);
-                AuditContext.setSessionId(sessionId);
-                AuditContext.setApplication("WebApplication");
-                AuditContext.setComponent("WebFilter");
-                
-                // Determine audit result based on HTTP status
-                AuditResult result;
-                if (statusCode >= 200 && statusCode < 300) {
-                    result = AuditResult.SUCCESS;
-                } else if (statusCode == 401 || statusCode == 403) {
-                    result = AuditResult.DENIED;
-                } else {
-                    result = AuditResult.FAILURE;
-                }
-                
-                // Create details map
-                Map<String, Object> details = new HashMap<>();
-                details.put("http_method", method);
-                details.put("status_code", statusCode);
-                details.put("duration_ms", durationMs);
-                
-                // Log the request
-                auditLogger.logEvent("WEB_REQUEST", method, path, result, 
-                                   "HTTP request processed", details);
-                
-            } catch (AuditLoggingException e) {
-                System.err.println("Failed to audit web request: " + e.getMessage());
-            } finally {
-                AuditContext.clear();
-            }
-        }
-        
-        public void close() throws AuditLoggingException {
-            auditLogger.close();
         }
     }
 } 
