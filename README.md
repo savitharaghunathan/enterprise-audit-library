@@ -1,5 +1,7 @@
 # Enterprise Audit Logging Library
 
+**Version 2.0.0**
+
 A modern, Java 21+ audit logging library designed for cloud-native, large-scale enterprise environments. This library provides a uniform, async, and streamable way for applications to emit structured audit events, essential for compliance, security audits, and operational visibility. **This version is not backward compatible with Java 8 or previous versions.**
 
 ## Version 2.0: Java 21+ Streamable Backend (Cloud-Native)
@@ -25,13 +27,13 @@ Add the library to your project:
 <dependency>
     <groupId>com.enterprise</groupId>
     <artifactId>audit-logging-library</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
 </dependency>
 ```
 
 **Gradle:**
 ```groovy
-implementation 'com.enterprise:audit-logging-library:1.0.0'
+implementation 'com.enterprise:audit-logging-library:2.0.0'
 ```
 
 ### 2. Basic Usage
