@@ -36,35 +36,6 @@ Add the library to your project:
 implementation 'com.enterprise:audit-logging-library:2.0.0'
 ```
 
-### 2. Basic Usage
-
-```java
-import com.enterprise.audit.logging.service.AuditLogger;
-import com.enterprise.audit.logging.service.FileSystemAuditLogger;
-import com.enterprise.audit.logging.exception.AuditLoggingException;
-
-public class MyApplication {
-    public static void main(String[] args) {
-        try {
-            AuditLogger auditLogger = new FileSystemAuditLogger();
-            
-            // Log a successful operation
-            auditLogger.logSuccess("USER_ACTION", "LOGIN", "/login", "User logged in successfully");
-            
-            // Log a failure
-            auditLogger.logFailure("DATABASE", "QUERY", "users_table", "Connection timeout");
-            
-            // Log an access denial
-            auditLogger.logDenied("SECURITY", "ACCESS", "/admin", "Insufficient permissions");
-            
-            auditLogger.close();
-        } catch (AuditLoggingException e) {
-            System.err.println("Audit logging failed: " + e.getMessage());
-        }
-    }
-}
-```
-
 ## Quick Start: Cloud-Native Usage
 
 ### 1. Use `StreamableAuditLogger`
