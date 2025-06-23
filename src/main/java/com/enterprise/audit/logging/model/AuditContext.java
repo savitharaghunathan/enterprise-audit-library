@@ -3,8 +3,6 @@ package com.enterprise.audit.logging.model;
 import org.slf4j.MDC;
 import java.util.HashMap;
 import java.util.Map;
-import com.enterprise.audit.logging.model.AuditEvent;
-import com.enterprise.audit.logging.model.AuditResult;
 
 /**
  * Provides a context for storing audit-related information that should be 
