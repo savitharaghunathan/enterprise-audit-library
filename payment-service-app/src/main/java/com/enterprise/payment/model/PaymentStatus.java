@@ -1,7 +1,5 @@
 package com.enterprise.payment.model;
 
-import com.fasterxml.jackson.annotation.JsonValue;
-
 /**
  * Payment status enumeration.
  * Represents the various states a payment can be in during processing.
@@ -59,7 +57,6 @@ public enum PaymentStatus {
      * 
      * @return the status value as a string
      */
-    @JsonValue
     public String getValue() {
         return value;
     }

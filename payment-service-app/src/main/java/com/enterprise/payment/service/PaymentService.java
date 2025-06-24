@@ -1,5 +1,6 @@
 package com.enterprise.payment.service;
 
+import com.enterprise.audit.logging.config.AuditConfiguration;
 import com.enterprise.audit.logging.model.AuditContext;
 import com.enterprise.audit.logging.model.AuditEvent;
 import com.enterprise.audit.logging.model.AuditResult;
@@ -10,6 +11,7 @@ import com.enterprise.payment.model.PaymentResponse;
 import com.enterprise.payment.model.PaymentStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -17,6 +19,7 @@ import jakarta.annotation.PreDestroy;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 
 /**
@@ -37,29 +40,52 @@ public class PaymentService {
     // Simulated minimum processing fee
     private static final BigDecimal MIN_PROCESSING_FEE = new BigDecimal("0.30");
 
+    // Audit configuration properties
+    @Value("${audit.stream.host:localhost}")
+    private String auditStreamHost;
+    
+    @Value("${audit.stream.port:5000}")
+    private int auditStreamPort;
+    
+    @Value("${audit.stream.buffer.size:8192}")
+    private int auditStreamBufferSize;
+
     @PostConstruct
     public void initialize() {
         try {
+            // Initialize audit configuration from properties
+            AuditConfiguration config = new AuditConfiguration();
+            config.setStreamHost(auditStreamHost);
+            config.setStreamPort(auditStreamPort);
+            config.setStreamBufferSize(auditStreamBufferSize);
+            
             // Initialize the audit logger with TCP streaming backend
-            auditLogger = new StreamableAuditLogger();
+            auditLogger = new StreamableAuditLogger(config);
+            
+            if (!auditLogger.isReady()) {
+                throw new RuntimeException("Audit logging backend unavailable. Cannot connect to " + 
+                    auditStreamHost + ":" + auditStreamPort + ". Please ensure Logstash is running.");
+            }
             
             // Set up audit context for the payment service
             AuditContext.setApplication("payment-service");
             AuditContext.setComponent("payment-processor");
             
-            logger.info("Payment service initialized with v2 audit logging");
+            logger.info("Payment service initialized with v2 audit logging - Stream: {}:{}", 
+                       auditStreamHost, auditStreamPort);
             
-            // Log service startup using v2 API
-            auditLogger.logEventAsync(new AuditEvent(
+            // Log service startup using v2 API with AuditContext
+            auditLogger.logEventAsync(AuditContext.fromContext(
                 "SERVICE_STARTUP",
                 "initialize",
                 "payment-service",
                 AuditResult.SUCCESS,
-                "Payment service started successfully"
+                "Payment service started successfully",
+                null
             ));
         } catch (Exception e) {
             logger.error("Failed to initialize payment service", e);
-            throw new RuntimeException("Payment service initialization failed", e);
+            throw new RuntimeException("Payment service initialization failed: " + e.getMessage(), e);
         }
     }
 
@@ -67,12 +93,13 @@ public class PaymentService {
     public void cleanup() {
         try {
             if (auditLogger != null) {
-                auditLogger.logEventAsync(new AuditEvent(
+                auditLogger.logEventAsync(AuditContext.fromContext(
                     "SERVICE_SHUTDOWN",
                     "cleanup",
                     "payment-service",
                     AuditResult.SUCCESS,
-                    "Payment service shutting down"
+                    "Payment service shutting down",
+                    null
                 ));
                 auditLogger.close();
             }
@@ -96,7 +123,7 @@ public class PaymentService {
             AuditContext.setUserId(request.getCustomerId());
             AuditContext.setSessionId(request.getPaymentId());
             
-            // Log payment initiation using v2 API
+            // Log payment initiation using v2 API with AuditContext
             Map<String, Object> paymentDetails = new HashMap<>();
             paymentDetails.put("amount", request.getAmount());
             paymentDetails.put("currency", request.getCurrency());
@@ -104,7 +131,7 @@ public class PaymentService {
             paymentDetails.put("merchant_id", request.getMerchantId());
             
             try {
-                auditLogger.logEventAsync(new AuditEvent(
+                auditLogger.logEventAsync(AuditContext.fromContext(
                     "PAYMENT_INITIATED",
                     "process_payment",
                     "payment/" + request.getPaymentId(),
@@ -121,7 +148,7 @@ public class PaymentService {
             // Simulate payment processing
             PaymentResponse response = simulatePaymentProcessing(request);
             
-            // Log payment result using v2 API
+            // Log payment result using v2 API with AuditContext
             Map<String, Object> resultDetails = new HashMap<>();
             resultDetails.put("transaction_id", response.getTransactionId());
             resultDetails.put("status", response.getStatus());
@@ -129,23 +156,25 @@ public class PaymentService {
             
             try {
                 if (response.getStatus() == PaymentStatus.COMPLETED) {
-                    auditLogger.logEventAsync(new AuditEvent(
+                    auditLogger.logEventAsync(AuditContext.fromContext(
                         "PAYMENT_COMPLETED",
                         "process_payment",
                         "payment/" + request.getPaymentId(),
                         AuditResult.SUCCESS,
-                        "Payment processed successfully"
+                        "Payment processed successfully",
+                        resultDetails
                     ));
                 } else if (response.getStatus() == PaymentStatus.DECLINED) {
-                    auditLogger.logEventAsync(new AuditEvent(
+                    auditLogger.logEventAsync(AuditContext.fromContext(
                         "PAYMENT_DECLINED",
                         "process_payment",
                         "payment/" + request.getPaymentId(),
                         AuditResult.FAILURE,
-                        "Payment was declined: " + response.getMessage()
+                        "Payment was declined: " + response.getMessage(),
+                        resultDetails
                     ));
                 } else {
-                    auditLogger.logEventAsync(new AuditEvent(
+                    auditLogger.logEventAsync(AuditContext.fromContext(
                         "PAYMENT_PROCESSED",
                         "process_payment",
                         "payment/" + request.getPaymentId(),
@@ -164,14 +193,15 @@ public class PaymentService {
             return response;
             
         } catch (Exception e) {
-            // Log payment processing error using v2 API
+            // Log payment processing error using v2 API with AuditContext
             try {
-                auditLogger.logEventAsync(new AuditEvent(
+                auditLogger.logEventAsync(AuditContext.fromContext(
                     "PAYMENT_ERROR",
                     "process_payment",
                     "payment/" + request.getPaymentId(),
                     AuditResult.FAILURE,
-                    "Payment processing failed: " + e.getMessage()
+                    "Payment processing failed: " + e.getMessage(),
+                    null
                 ));
             } catch (Exception auditException) {
                 logger.warn("Failed to log PAYMENT_ERROR event", auditException);
@@ -190,9 +220,7 @@ public class PaymentService {
             return errorResponse;
         } finally {
             // Clear audit context
-            AuditContext.setCorrelationId(null);
-            AuditContext.setUserId(null);
-            AuditContext.setSessionId(null);
+            AuditContext.clear();
         }
     }
 
@@ -269,12 +297,13 @@ public class PaymentService {
             AuditContext.setCorrelationId(UUID.randomUUID().toString());
             
             try {
-                auditLogger.logEventAsync(new AuditEvent(
+                auditLogger.logEventAsync(AuditContext.fromContext(
                     "PAYMENT_STATUS_REQUESTED",
                     "get_status",
                     "payment/" + paymentId,
                     AuditResult.SUCCESS,
-                    "Payment status requested"
+                    "Payment status requested",
+                    null
                 ));
             } catch (Exception e) {
                 logger.warn("Failed to log PAYMENT_STATUS_REQUESTED event", e);
@@ -291,12 +320,13 @@ public class PaymentService {
             response.setMessage("Payment status retrieved");
             
             try {
-                auditLogger.logEventAsync(new AuditEvent(
+                auditLogger.logEventAsync(AuditContext.fromContext(
                     "PAYMENT_STATUS_RETRIEVED",
                     "get_status",
                     "payment/" + paymentId,
                     AuditResult.SUCCESS,
-                    "Payment status retrieved successfully"
+                    "Payment status retrieved successfully",
+                    null
                 ));
             } catch (Exception e) {
                 logger.warn("Failed to log PAYMENT_STATUS_RETRIEVED event", e);
@@ -306,19 +336,47 @@ public class PaymentService {
             
         } catch (Exception e) {
             try {
-                auditLogger.logEventAsync(new AuditEvent(
+                auditLogger.logEventAsync(AuditContext.fromContext(
                     "PAYMENT_STATUS_ERROR",
                     "get_status",
                     "payment/" + paymentId,
                     AuditResult.FAILURE,
-                    "Failed to retrieve payment status: " + e.getMessage()
+                    "Failed to retrieve payment status: " + e.getMessage(),
+                    null
                 ));
             } catch (Exception auditException) {
                 logger.warn("Failed to log PAYMENT_STATUS_ERROR event", auditException);
             }
             throw e;
         } finally {
-            AuditContext.setCorrelationId(null);
+            AuditContext.clear();
         }
+    }
+
+    /**
+     * Check if audit logging is ready.
+     * 
+     * @return true if audit logging backend is available
+     */
+    public boolean isAuditLoggingReady() {
+        return auditLogger != null && auditLogger.isReady();
+    }
+
+    /**
+     * Get audit stream host configuration.
+     * 
+     * @return audit stream host
+     */
+    public String getAuditStreamHost() {
+        return auditStreamHost;
+    }
+
+    /**
+     * Get audit stream port configuration.
+     * 
+     * @return audit stream port
+     */
+    public int getAuditStreamPort() {
+        return auditStreamPort;
     }
 } 

@@ -9,6 +9,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -75,7 +77,7 @@ public class PaymentController {
      * @return the payment response
      */
     @GetMapping("/{paymentId}/status")
-    public ResponseEntity<PaymentResponse> getPaymentStatus(@PathVariable String paymentId) {
+    public ResponseEntity<PaymentResponse> getPaymentStatus(@PathVariable("paymentId") String paymentId) {
         logger.info("Requesting payment status: {}", paymentId);
         
         try {
@@ -106,12 +108,78 @@ public class PaymentController {
         health.put("service", "payment-service");
         health.put("version", "2.0.0");
         health.put("java", System.getProperty("java.version"));
+        return ResponseEntity.ok(health);
+    }
+
+    /**
+     * Detailed health check endpoint including audit logging status.
+     * 
+     * @return detailed health status
+     */
+    @GetMapping("/health/detailed")
+    public ResponseEntity<Map<String, Object>> detailedHealth() {
+        Map<String, Object> health = new HashMap<>();
+        health.put("status", "UP");
+        health.put("service", "payment-service");
+        health.put("version", "2.0.0");
+        health.put("java", System.getProperty("java.version"));
+        
+        // Check audit logging status
+        try {
+            boolean auditReady = paymentService.isAuditLoggingReady();
+            health.put("audit_logging", auditReady ? "UP" : "DOWN");
+            health.put("audit_stream_host", paymentService.getAuditStreamHost());
+            health.put("audit_stream_port", paymentService.getAuditStreamPort());
+        } catch (Exception e) {
+            health.put("audit_logging", "ERROR");
+            health.put("audit_error", e.getMessage());
+        }
         
         return ResponseEntity.ok(health);
     }
 
     /**
-     * Exception handler for validation errors.
+     * Exception handler for validation errors (MethodArgumentNotValidException).
+     * 
+     * @param e the validation exception
+     * @return error response
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleMethodArgumentNotValidException(
+            MethodArgumentNotValidException e) {
+        
+        Map<String, Object> error = new HashMap<>();
+        error.put("error", "Validation failed");
+        error.put("message", e.getMessage());
+        error.put("status", "BAD_REQUEST");
+        
+        logger.warn("Validation error: {}", e.getMessage());
+        
+        return ResponseEntity.badRequest().body(error);
+    }
+
+    /**
+     * Exception handler for JSON parsing errors.
+     * 
+     * @param e the JSON parsing exception
+     * @return error response
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> handleHttpMessageNotReadableException(
+            HttpMessageNotReadableException e) {
+        
+        Map<String, Object> error = new HashMap<>();
+        error.put("error", "Invalid JSON");
+        error.put("message", "JSON parse error: " + e.getMessage());
+        error.put("status", "BAD_REQUEST");
+        
+        logger.warn("JSON parsing error: {}", e.getMessage());
+        
+        return ResponseEntity.badRequest().body(error);
+    }
+
+    /**
+     * Exception handler for validation errors (ConstraintViolationException).
      * 
      * @param e the validation exception
      * @return error response

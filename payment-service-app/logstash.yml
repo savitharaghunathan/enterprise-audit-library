@@ -1,0 +1,7 @@
+# Disable monitoring to avoid Elasticsearch connection attempts
+xpack.monitoring.enabled: false
+
+# Pipeline settings
+pipeline.workers: 2
+pipeline.batch.size: 125
+pipeline.batch.delay: 50 
