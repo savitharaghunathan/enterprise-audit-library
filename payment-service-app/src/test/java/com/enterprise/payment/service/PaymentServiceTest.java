@@ -223,64 +223,6 @@ public class PaymentServiceTest {
     }
 
     @Test
-    public void testGetPaymentStatus_Success() throws Exception {
-        // Arrange
-        String paymentId = "test-payment-123";
-        
-        // Act
-        PaymentResponse response = paymentService.getPaymentStatus(paymentId);
-        
-        // Assert
-        assertNotNull(response);
-        assertEquals(paymentId, response.getPaymentId());
-        assertEquals(PaymentStatus.COMPLETED, response.getStatus());
-        assertNotNull(response.getTransactionId());
-        assertEquals("USD", response.getCurrency());
-        
-        // Verify audit logging
-        verify(mockAuditLogger, times(1)).logEvent(
-            eq("PAYMENT_STATUS_REQUESTED"), 
-            eq("get_status"), 
-            eq("payment/" + paymentId), 
-            eq(AuditResult.SUCCESS), 
-            eq("Payment status requested")
-        );
-        
-        verify(mockAuditLogger, times(1)).logSuccess(
-            eq("PAYMENT_STATUS_RETRIEVED"), 
-            eq("get_status"), 
-            eq("payment/" + paymentId), 
-            eq("Payment status retrieved successfully")
-        );
-    }
-
-    @Test
-    public void testGetPaymentStatus_ExceptionHandling() throws Exception {
-        // Arrange
-        String paymentId = "test-payment-123";
-        
-        // Mock audit logger to throw exception
-        doThrow(new RuntimeException("Audit logging failed"))
-            .when(mockAuditLogger).logEvent(anyString(), anyString(), anyString(), any(), anyString());
-        
-        // Act & Assert
-        try {
-            paymentService.getPaymentStatus(paymentId);
-            fail("Expected exception to be thrown");
-        } catch (RuntimeException e) {
-            // Expected
-        }
-        
-        // Verify error logging
-        verify(mockAuditLogger, times(1)).logFailure(
-            eq("PAYMENT_STATUS_ERROR"), 
-            eq("get_status"), 
-            eq("payment/" + paymentId), 
-            contains("Failed to retrieve payment status")
-        );
-    }
-
-    @Test
     public void testProcessingFeeCalculation() throws Exception {
         // Test minimum fee for small amounts
         PaymentRequest smallRequest = createValidPaymentRequest();
@@ -307,6 +249,19 @@ public class PaymentServiceTest {
         request.setCurrency("USD");
         request.setPaymentMethod("CREDIT_CARD");
         request.setDescription("Test payment");
+        request.setCardNumber("4242424242424242");
+        request.setExpiryMonth(12);
+        request.setExpiryYear(2026);
+        request.setCvv("123");
+        request.setCardholderName("Jane Doe");
+        com.enterprise.payment.model.BillingAddress address = new com.enterprise.payment.model.BillingAddress();
+        address.setLine1("123 Main St");
+        address.setLine2("Apt 4B");
+        address.setCity("New York");
+        address.setState("NY");
+        address.setPostalCode("10001");
+        address.setCountry("US");
+        request.setBillingAddress(address);
         return request;
     }
 } 

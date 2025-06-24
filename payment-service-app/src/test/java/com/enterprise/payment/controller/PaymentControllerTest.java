@@ -162,67 +162,6 @@ public class PaymentControllerTest {
     }
 
     @Test
-    public void testGetPaymentStatus_Success() throws Exception {
-        // Arrange
-        String paymentId = "test-payment-123";
-        PaymentResponse response = new PaymentResponse();
-        response.setPaymentId(paymentId);
-        response.setStatus(PaymentStatus.COMPLETED);
-        response.setTransactionId("TXN-12345678");
-        response.setAmount(new BigDecimal("100.00"));
-        response.setCurrency("USD");
-        response.setMessage("Payment status retrieved");
-        
-        when(mockPaymentService.getPaymentStatus(paymentId)).thenReturn(response);
-        
-        // Act & Assert
-        mockMvc.perform(get("/api/v1/payments/{paymentId}/status", paymentId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.payment_id").value(paymentId))
-                .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.transaction_id").value("TXN-12345678"));
-        
-        // Verify audit logging
-        verify(mockAuditLogger, times(1)).logEvent(
-            eq("API_REQUEST"), 
-            eq("get_status"), 
-            eq("api/payments/" + paymentId + "/status"), 
-            eq(AuditResult.SUCCESS), 
-            eq("Payment status API request received")
-        );
-        
-        verify(mockAuditLogger, times(1)).logEvent(
-            eq("API_RESPONSE"), 
-            eq("get_status"), 
-            eq("api/payments/" + paymentId + "/status"), 
-            eq(AuditResult.SUCCESS), 
-            eq("Payment status API response sent")
-        );
-    }
-
-    @Test
-    public void testGetPaymentStatus_ServiceException() throws Exception {
-        // Arrange
-        String paymentId = "test-payment-123";
-        
-        when(mockPaymentService.getPaymentStatus(paymentId))
-            .thenThrow(new RuntimeException("Service error"));
-        
-        // Act & Assert
-        mockMvc.perform(get("/api/v1/payments/{paymentId}/status", paymentId))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Internal server error")));
-        
-        // Verify audit logging
-        verify(mockAuditLogger, times(1)).logFailure(
-            eq("API_ERROR"), 
-            eq("get_status"), 
-            eq("api/payments/" + paymentId + "/status"), 
-            contains("API error")
-        );
-    }
-
-    @Test
     public void testHealthCheck() throws Exception {
         // Act & Assert
         mockMvc.perform(get("/api/v1/payments/health"))
@@ -297,6 +236,19 @@ public class PaymentControllerTest {
         request.setCurrency("USD");
         request.setPaymentMethod("CREDIT_CARD");
         request.setDescription("Test payment");
+        request.setCardNumber("4242424242424242");
+        request.setExpiryMonth(12);
+        request.setExpiryYear(2026);
+        request.setCvv("123");
+        request.setCardholderName("Jane Doe");
+        com.enterprise.payment.model.BillingAddress address = new com.enterprise.payment.model.BillingAddress();
+        address.setLine1("123 Main St");
+        address.setLine2("Apt 4B");
+        address.setCity("New York");
+        address.setState("NY");
+        address.setPostalCode("10001");
+        address.setCountry("US");
+        request.setBillingAddress(address);
         return request;
     }
 

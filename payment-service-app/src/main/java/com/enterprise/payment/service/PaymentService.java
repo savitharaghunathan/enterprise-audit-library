@@ -4,7 +4,9 @@ import com.enterprise.audit.logging.model.AuditContext;
 import com.enterprise.audit.logging.model.AuditEvent;
 import com.enterprise.audit.logging.model.AuditResult;
 import com.enterprise.audit.logging.service.AuditLogger;
-import com.enterprise.audit.logging.service.FileSystemAuditLogger;
+import com.enterprise.payment.gateway.GatewayException;
+import com.enterprise.payment.gateway.PaymentGateway;
+import com.enterprise.payment.model.GatewayResponse;
 import com.enterprise.payment.model.PaymentRequest;
 import com.enterprise.payment.model.PaymentResponse;
 import com.enterprise.payment.model.PaymentStatus;
@@ -15,265 +17,294 @@ import org.springframework.stereotype.Service;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * Service for processing payment operations with comprehensive audit logging.
- * Demonstrates the use of the Enterprise Audit Logging Library for compliance
- * and operational visibility.
+ * Payment service that processes payments through payment gateways.
+ * In a real application, this would integrate with Stripe, PayPal, etc.
  */
 @Service
 public class PaymentService {
-
-    private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
     
-    private AuditLogger auditLogger;
+    private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
     
     // Simulated processing fee percentage
     private static final BigDecimal PROCESSING_FEE_PERCENTAGE = new BigDecimal("0.029"); // 2.9%
     
     // Simulated minimum processing fee
     private static final BigDecimal MIN_PROCESSING_FEE = new BigDecimal("0.30");
-
-    @PostConstruct
-    public void initialize() {
-        try {
-            // Initialize the audit logger with file system backend
-            auditLogger = new FileSystemAuditLogger();
-            
-            // Set up audit context for the payment service
-            AuditContext.setApplication("payment-service");
-            AuditContext.setComponent("payment-processor");
-            
-            logger.info("Payment service initialized with audit logging");
-            
-            // Log service startup
-            auditLogger.logSuccess("SERVICE_STARTUP", "initialize", "payment-service", 
-                                 "Payment service started successfully");
-        } catch (Exception e) {
-            logger.error("Failed to initialize payment service", e);
-            throw new RuntimeException("Payment service initialization failed", e);
-        }
+    
+    private static final Set<String> SUPPORTED_PAYMENT_METHODS = new HashSet<>();
+    static {
+        SUPPORTED_PAYMENT_METHODS.add("CREDIT_CARD");
+        SUPPORTED_PAYMENT_METHODS.add("DEBIT_CARD");
+        SUPPORTED_PAYMENT_METHODS.add("BANK_TRANSFER");
+        SUPPORTED_PAYMENT_METHODS.add("DIGITAL_WALLET");
+        SUPPORTED_PAYMENT_METHODS.add("CRYPTO");
     }
-
+    
+    private static final Set<String> SUPPORTED_CURRENCIES = new HashSet<>();
+    static {
+        SUPPORTED_CURRENCIES.add("USD");
+        SUPPORTED_CURRENCIES.add("EUR");
+        SUPPORTED_CURRENCIES.add("GBP");
+        SUPPORTED_CURRENCIES.add("CAD");
+        SUPPORTED_CURRENCIES.add("AUD");
+        SUPPORTED_CURRENCIES.add("JPY");
+        SUPPORTED_CURRENCIES.add("CHF");
+        SUPPORTED_CURRENCIES.add("SEK");
+        SUPPORTED_CURRENCIES.add("NOK");
+        SUPPORTED_CURRENCIES.add("DKK");
+    }
+    
+    private AuditLogger auditLogger;
+    
+    private PaymentGateway paymentGateway;
+    
+    @PostConstruct
+    public void init() {
+        logger.info("Payment service initialized");
+        
+        // Initialize audit logger manually (v1 style)
+        try {
+            auditLogger = new com.enterprise.audit.logging.service.FileSystemAuditLogger();
+            logger.info("Audit logger initialized");
+        } catch (Exception e) {
+            logger.error("Failed to initialize audit logger", e);
+            throw new RuntimeException("Audit logger initialization failed", e);
+        }
+        
+        // Initialize payment gateway manually
+        try {
+            paymentGateway = new com.enterprise.payment.gateway.MockPaymentGateway();
+            logger.info("Payment gateway initialized: {}", paymentGateway.getGatewayName());
+        } catch (Exception e) {
+            logger.error("Failed to initialize payment gateway", e);
+            throw new RuntimeException("Payment gateway initialization failed", e);
+        }
+        
+        // Verify gateway is available
+        if (!paymentGateway.isAvailable()) {
+            logger.error("Payment gateway is not available - service cannot start");
+            throw new RuntimeException("Payment gateway unavailable");
+        }
+        
+        logger.info("Payment gateway '{}' is available", paymentGateway.getGatewayName());
+    }
+    
     @PreDestroy
     public void cleanup() {
-        try {
-            if (auditLogger != null) {
-                auditLogger.logSuccess("SERVICE_SHUTDOWN", "cleanup", "payment-service", 
-                                     "Payment service shutting down");
-                auditLogger.close();
-            }
-        } catch (Exception e) {
-            logger.error("Error during payment service cleanup", e);
-        }
+        logger.info("Payment service shutting down");
     }
-
+    
     /**
-     * Process a payment request with comprehensive audit logging.
-     * 
-     * @param request the payment request to process
-     * @return the payment response
+     * Process a payment request through the payment gateway.
+     * This is the main method that handles the entire payment flow.
      */
     public PaymentResponse processPayment(PaymentRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        logger.info("Processing payment request: {}", request.getPaymentId());
+        
+        // Create audit context
+        Map<String, Object> auditContext = new HashMap<>();
+        auditContext.put("payment_id", request.getPaymentId());
+        auditContext.put("amount", request.getAmount().toString());
+        auditContext.put("currency", request.getCurrency());
+        auditContext.put("payment_method", request.getPaymentMethod());
         
         try {
-            // Set up audit context for this transaction
-            AuditContext.setCorrelationId(correlationId);
-            AuditContext.setUserId(request.getCustomerId());
-            AuditContext.setSessionId(request.getPaymentId());
-            
             // Log payment initiation
-            Map<String, Object> paymentDetails = new HashMap<>();
-            paymentDetails.put("amount", request.getAmount());
-            paymentDetails.put("currency", request.getCurrency());
-            paymentDetails.put("payment_method", request.getPaymentMethod());
-            paymentDetails.put("merchant_id", request.getMerchantId());
-            try {
-                auditLogger.logEvent("PAYMENT_INITIATED", "process_payment", 
-                                   "payment/" + request.getPaymentId(), 
-                                   AuditResult.SUCCESS, 
-                                   "Payment processing initiated", 
-                                   paymentDetails);
-            } catch (Exception e) {
-                logger.warn("Failed to log PAYMENT_INITIATED event", e);
+            auditLogger.logEvent(
+                "PAYMENT_INITIATED",
+                "process_payment",
+                "payment/" + request.getPaymentId(),
+                AuditResult.SUCCESS,
+                "Payment processing initiated",
+                auditContext
+            );
+            
+            // Validate payment request
+            validatePaymentRequest(request);
+            
+            // Process payment through gateway
+            GatewayResponse gatewayResponse = paymentGateway.processPayment(request);
+            
+            // Convert gateway response to payment response
+            PaymentResponse response = convertGatewayResponse(request, gatewayResponse);
+            
+            // Log payment processing result based on actual status
+            AuditResult auditResult;
+            String auditMessage;
+            
+            if (response.getStatus() == PaymentStatus.COMPLETED) {
+                auditResult = AuditResult.SUCCESS;
+                auditMessage = "Payment processed successfully";
+            } else if (response.getStatus() == PaymentStatus.DECLINED) {
+                auditResult = AuditResult.FAILURE;
+                auditMessage = "Payment declined: " + response.getMessage();
+            } else {
+                auditResult = AuditResult.FAILURE;
+                auditMessage = "Payment failed: " + response.getMessage();
             }
             
-            logger.info("Processing payment: {}", request.getPaymentId());
+            // Add response details to audit context
+            auditContext.put("transaction_id", response.getTransactionId());
+            auditContext.put("payment_status", response.getStatus().toString());
             
-            // Simulate payment processing
-            PaymentResponse response = simulatePaymentProcessing(request);
+            auditLogger.logEvent(
+                "PAYMENT_PROCESSED",
+                "process_payment",
+                "payment/" + request.getPaymentId(),
+                auditResult,
+                auditMessage,
+                auditContext
+            );
             
-            // Log payment result
-            Map<String, Object> resultDetails = new HashMap<>();
-            resultDetails.put("transaction_id", response.getTransactionId());
-            resultDetails.put("status", response.getStatus());
-            resultDetails.put("processing_fee", response.getProcessingFee());
-            try {
-                if (response.getStatus() == PaymentStatus.COMPLETED) {
-                    auditLogger.logSuccess("PAYMENT_COMPLETED", "process_payment", 
-                                         "payment/" + request.getPaymentId(), 
-                                         "Payment processed successfully");
-                } else if (response.getStatus() == PaymentStatus.DECLINED) {
-                    auditLogger.logFailure("PAYMENT_DECLINED", "process_payment", 
-                                         "payment/" + request.getPaymentId(), 
-                                         "Payment was declined: " + response.getMessage());
-                } else {
-                    auditLogger.logEvent("PAYMENT_PROCESSED", "process_payment", 
-                                       "payment/" + request.getPaymentId(), 
-                                       AuditResult.SUCCESS, 
-                                       "Payment processed with status: " + response.getStatus(), 
-                                       resultDetails);
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to log payment result event", e);
-            }
-            
-            logger.info("Payment processed: {} - Status: {}", 
-                       request.getPaymentId(), response.getStatus());
+            logger.info("Payment processed: {} -> {} ({})", 
+                       request.getPaymentId(), response.getStatus(), auditMessage);
             
             return response;
             
-        } catch (Exception e) {
-            // Log payment processing error
+        } catch (GatewayException e) {
+            logger.error("Payment gateway error for payment {}: {}", 
+                        request.getPaymentId(), e.getMessage());
+            
+            // Log gateway failure
             try {
-                auditLogger.logFailure("PAYMENT_ERROR", "process_payment", 
-                                     "payment/" + request.getPaymentId(), 
-                                     "Payment processing failed: " + e.getMessage());
+                auditLogger.logFailure(
+                    "PAYMENT_GATEWAY_ERROR",
+                    "process_payment",
+                    "payment/" + request.getPaymentId(),
+                    "Gateway error: " + e.getMessage()
+                );
             } catch (Exception auditException) {
-                logger.warn("Failed to log PAYMENT_ERROR event", auditException);
+                logger.warn("Failed to log gateway error audit event", auditException);
             }
             
-            logger.error("Payment processing failed for: {}", request.getPaymentId(), e);
+            // Return error response
+            return createErrorResponse(request, e);
+            
+        } catch (Exception e) {
+            logger.error("Unexpected error processing payment {}: {}", 
+                        request.getPaymentId(), e.getMessage(), e);
+            
+            // Log unexpected error
+            try {
+                auditLogger.logFailure(
+                    "PAYMENT_ERROR",
+                    "process_payment",
+                    "payment/" + request.getPaymentId(),
+                    "Unexpected error: " + e.getMessage()
+                );
+            } catch (Exception auditException) {
+                logger.warn("Failed to log payment error audit event", auditException);
+            }
             
             // Return error response
-            PaymentResponse errorResponse = new PaymentResponse();
-            errorResponse.setPaymentId(request.getPaymentId());
-            errorResponse.setStatus(PaymentStatus.FAILED);
-            errorResponse.setMessage("Payment processing failed: " + e.getMessage());
-            errorResponse.setAmount(request.getAmount());
-            errorResponse.setCurrency(request.getCurrency());
-            
-            return errorResponse;
-        } finally {
-            // Clear audit context
-            AuditContext.setCorrelationId(null);
-            AuditContext.setUserId(null);
-            AuditContext.setSessionId(null);
+            return createErrorResponse(request, e);
         }
     }
-
+    
     /**
-     * Simulate payment processing logic.
-     * In a real application, this would integrate with payment gateways.
+     * Validate payment request before processing.
      */
-    private PaymentResponse simulatePaymentProcessing(PaymentRequest request) {
-        // Simulate processing delay
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+    private void validatePaymentRequest(PaymentRequest request) {
+        // Validate payment method
+        if (!SUPPORTED_PAYMENT_METHODS.contains(request.getPaymentMethod().toUpperCase())) {
+            throw new IllegalArgumentException("Unsupported payment method: " + request.getPaymentMethod());
         }
         
-        // Generate transaction ID
-        String transactionId = "TXN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        // Validate currency
+        if (!SUPPORTED_CURRENCIES.contains(request.getCurrency().toUpperCase())) {
+            throw new IllegalArgumentException("Unsupported currency: " + request.getCurrency());
+        }
         
-        // Calculate processing fee
-        BigDecimal processingFee = calculateProcessingFee(request.getAmount());
+        // Validate amount
+        if (request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Amount must be greater than zero");
+        }
         
-        // Simulate different payment outcomes based on amount
+        // Validate card details for credit/debit card payments
+        if (request.getPaymentMethod().equalsIgnoreCase("CREDIT_CARD") || 
+            request.getPaymentMethod().equalsIgnoreCase("DEBIT_CARD")) {
+            
+            if (request.getCardNumber() == null || request.getCardNumber().trim().isEmpty()) {
+                throw new IllegalArgumentException("Card number is required");
+            }
+            
+            if (request.getExpiryMonth() == null || request.getExpiryYear() == null) {
+                throw new IllegalArgumentException("Card expiry date is required");
+            }
+            
+            if (request.getCvv() == null || request.getCvv().trim().isEmpty()) {
+                throw new IllegalArgumentException("CVV is required");
+            }
+            
+            if (request.getCardholderName() == null || request.getCardholderName().trim().isEmpty()) {
+                throw new IllegalArgumentException("Cardholder name is required");
+            }
+        }
+    }
+    
+    /**
+     * Convert gateway response to payment response.
+     */
+    private PaymentResponse convertGatewayResponse(PaymentRequest request, GatewayResponse gatewayResponse) {
         PaymentStatus status;
-        String message;
         
-        if (request.getAmount().compareTo(new BigDecimal("10000")) > 0) {
-            // Large amount - decline
-            status = PaymentStatus.DECLINED;
-            message = "Payment declined: Amount exceeds limit";
-        } else if (request.getAmount().compareTo(new BigDecimal("0.01")) < 0) {
-            // Very small amount - fail
-            status = PaymentStatus.FAILED;
-            message = "Payment failed: Amount too small";
-        } else if (request.getPaymentMethod().equalsIgnoreCase("INVALID_CARD")) {
-            // Invalid payment method - decline
-            status = PaymentStatus.DECLINED;
-            message = "Payment declined: Invalid payment method";
-        } else {
-            // Successful payment
+        if (gatewayResponse.isSuccess()) {
             status = PaymentStatus.COMPLETED;
-            message = "Payment processed successfully";
+        } else {
+            // Map gateway error codes to payment status
+            String errorCode = gatewayResponse.getGatewayResponseCode();
+            if (errorCode != null && (errorCode.contains("DECLINED") || errorCode.contains("INSUFFICIENT"))) {
+                status = PaymentStatus.DECLINED;
+            } else {
+                status = PaymentStatus.FAILED;
+            }
         }
         
         PaymentResponse response = new PaymentResponse(
-            request.getPaymentId(), 
-            status, 
-            transactionId, 
-            request.getAmount(), 
+            request.getPaymentId(),
+            status,
+            gatewayResponse.getGatewayTransactionId(),
+            request.getAmount(),
             request.getCurrency()
         );
         
-        response.setProcessingFee(processingFee);
-        response.setMessage(message);
+        response.setProcessingFee(calculateProcessingFee(request.getAmount()));
+        response.setMessage(gatewayResponse.getGatewayResponseMessage());
         
         return response;
     }
-
+    
+    /**
+     * Create error response for failed payments.
+     */
+    private PaymentResponse createErrorResponse(PaymentRequest request, Exception error) {
+        PaymentResponse response = new PaymentResponse(
+            request.getPaymentId(),
+            PaymentStatus.FAILED,
+            "ERROR-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
+            request.getAmount(),
+            request.getCurrency()
+        );
+        
+        response.setProcessingFee(BigDecimal.ZERO);
+        response.setMessage("Payment failed: " + error.getMessage());
+        
+        return response;
+    }
+    
     /**
      * Calculate processing fee based on payment amount.
      */
     private BigDecimal calculateProcessingFee(BigDecimal amount) {
         BigDecimal fee = amount.multiply(PROCESSING_FEE_PERCENTAGE);
         return fee.max(MIN_PROCESSING_FEE);
-    }
-
-    /**
-     * Get payment status by payment ID.
-     * 
-     * @param paymentId the payment ID to look up
-     * @return the payment response or null if not found
-     */
-    public PaymentResponse getPaymentStatus(String paymentId) {
-        try {
-            AuditContext.setCorrelationId(UUID.randomUUID().toString());
-            try {
-                auditLogger.logEvent("PAYMENT_STATUS_REQUESTED", "get_status", 
-                                   "payment/" + paymentId, 
-                                   AuditResult.SUCCESS, 
-                                   "Payment status requested");
-            } catch (Exception e) {
-                logger.warn("Failed to log PAYMENT_STATUS_REQUESTED event", e);
-            }
-            // In a real application, this would query a database
-            // For demo purposes, return a mock response
-            PaymentResponse response = new PaymentResponse();
-            response.setPaymentId(paymentId);
-            response.setStatus(PaymentStatus.COMPLETED);
-            response.setTransactionId("TXN-" + paymentId.substring(0, 8).toUpperCase());
-            response.setAmount(new BigDecimal("100.00"));
-            response.setCurrency("USD");
-            response.setMessage("Payment status retrieved");
-            try {
-                auditLogger.logSuccess("PAYMENT_STATUS_RETRIEVED", "get_status", 
-                                     "payment/" + paymentId, 
-                                     "Payment status retrieved successfully");
-            } catch (Exception e) {
-                logger.warn("Failed to log PAYMENT_STATUS_RETRIEVED event", e);
-            }
-            return response;
-            
-        } catch (Exception e) {
-            try {
-                auditLogger.logFailure("PAYMENT_STATUS_ERROR", "get_status", 
-                                     "payment/" + paymentId, 
-                                     "Failed to retrieve payment status: " + e.getMessage());
-            } catch (Exception auditException) {
-                logger.warn("Failed to log PAYMENT_STATUS_ERROR event", auditException);
-            }
-            throw e;
-        } finally {
-            AuditContext.setCorrelationId(null);
-        }
     }
 } 

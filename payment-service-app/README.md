@@ -4,11 +4,11 @@ A Java 8 Spring Boot application that demonstrates the use of the Enterprise Aud
 
 ## Overview
 
-This payment service application showcases how to integrate the Enterprise Audit Logging Library into a real-world application to achieve compliance and operational visibility. The service processes payment requests and maintains detailed audit logs of all operations.
+This payment service application showcases how to integrate the Enterprise Audit Logging Library into a real-world application to achieve compliance and operational visibility. The service processes payment requests through a simulated payment gateway and maintains detailed audit logs of all operations.
 
 ## Features
 
-- **Payment Processing**: Process payment requests with validation
+- **Realistic Payment Processing**: Process payment requests with credit card validation and gateway simulation
 - **Audit Logging**: Comprehensive audit trail using the Enterprise Audit Logging Library
 - **REST API**: RESTful endpoints for payment operations
 - **Validation**: Input validation with detailed error messages
@@ -37,7 +37,13 @@ src/
 │   │   ├── model/
 │   │   │   ├── PaymentRequest.java           # Payment request model
 │   │   │   ├── PaymentResponse.java          # Payment response model
-│   │   │   └── PaymentStatus.java            # Payment status enum
+│   │   │   ├── PaymentStatus.java            # Payment status enum
+│   │   │   ├── BillingAddress.java           # Billing address model
+│   │   │   └── GatewayResponse.java          # Gateway response model
+│   │   ├── gateway/
+│   │   │   ├── PaymentGateway.java           # Payment gateway interface
+│   │   │   ├── MockPaymentGateway.java       # Mock gateway implementation
+│   │   │   └── GatewayException.java         # Gateway exception
 │   │   └── service/
 │   │       └── PaymentService.java           # Payment processing service
 │   └── resources/
@@ -65,13 +71,26 @@ Content-Type: application/json
   "amount": 100.00,
   "currency": "USD",
   "payment_method": "CREDIT_CARD",
-  "description": "Test payment"
+  "description": "Test payment",
+  "card_number": "4242424242424242",
+  "expiry_month": 12,
+  "expiry_year": 2026,
+  "cvv": "123",
+  "cardholder_name": "Jane Doe",
+  "billing_address": {
+    "line1": "123 Main St",
+    "line2": "Apt 4B",
+    "city": "New York",
+    "state": "NY",
+    "postal_code": "10001",
+    "country": "US"
+  }
 }
 ```
 
-### Get Payment Status
+### Get Payment Status (Mock)
 ```
-GET /api/v1/payments/{paymentId}/status
+GET /api/v1/payments/{paymentId}
 ```
 
 ### Health Check
@@ -85,37 +104,25 @@ The application uses the Enterprise Audit Logging Library to maintain comprehens
 
 ### Audit Events Logged
 
-1. **Service Lifecycle Events**:
-   - `SERVICE_STARTUP`: Service initialization
-   - `SERVICE_SHUTDOWN`: Service shutdown
-
-2. **Payment Processing Events**:
+1. **Payment Processing Events**:
    - `PAYMENT_INITIATED`: Payment processing started
-   - `PAYMENT_COMPLETED`: Payment successfully processed
-   - `PAYMENT_DECLINED`: Payment declined
-   - `PAYMENT_PROCESSED`: Payment processed with status
+   - `PAYMENT_PROCESSED`: Payment processed successfully
+   - `PAYMENT_GATEWAY_ERROR`: Payment gateway error
    - `PAYMENT_ERROR`: Payment processing error
 
-3. **API Events**:
+2. **API Events**:
    - `API_REQUEST`: API request received
    - `API_RESPONSE`: API response sent
    - `VALIDATION_ERROR`: Request validation failed
    - `API_ERROR`: API processing error
 
-4. **Status Events**:
-   - `PAYMENT_STATUS_REQUESTED`: Status request received
-   - `PAYMENT_STATUS_RETRIEVED`: Status retrieved successfully
-   - `PAYMENT_STATUS_ERROR`: Status retrieval error
-
 ### Audit Context
 
 The application sets up audit context for each request:
-- **Correlation ID**: Unique identifier for request tracing
-- **User ID**: Customer ID from payment request
-- **Session ID**: Payment ID for session tracking
-- **Application**: "payment-service"
-- **Component**: "payment-processor" or "payment-api"
-- **Source IP**: Client IP address
+- **Payment ID**: Unique identifier for payment tracking
+- **Amount and Currency**: Payment details
+- **Payment Method**: Type of payment method used
+- **Client IP**: Client IP address
 - **User Agent**: Client user agent
 
 ## Configuration
@@ -184,7 +191,7 @@ java -jar target/payment-service-1.0.0.jar
 ### Unit Tests
 
 The application includes comprehensive unit tests that verify:
-- Payment processing logic
+- Payment processing logic with gateway integration
 - Audit logging integration
 - Error handling
 - Processing fee calculations
@@ -224,15 +231,149 @@ curl -X POST http://localhost:8080/api/v1/payments/process \
     "amount": 100.00,
     "currency": "USD",
     "payment_method": "CREDIT_CARD",
-    "description": "Test payment"
+    "description": "Test payment",
+    "card_number": "4242424242424242",
+    "expiry_month": 12,
+    "expiry_year": 2026,
+    "cvv": "123",
+    "cardholder_name": "Jane Doe",
+    "billing_address": {
+      "line1": "123 Main St",
+      "line2": "Apt 4B",
+      "city": "New York",
+      "state": "NY",
+      "postal_code": "10001",
+      "country": "US"
+    }
   }'
 ```
 
-### Get Payment Status
+### Test Different Payment Scenarios
+
+**Successful Payment (Default):**
+```bash
+curl -X POST http://localhost:8080/api/v1/payments/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payment_id": "payment-success",
+    "merchant_id": "merchant-456",
+    "customer_id": "customer-789",
+    "amount": 100.00,
+    "currency": "USD",
+    "payment_method": "CREDIT_CARD",
+    "description": "Successful payment test",
+    "card_number": "4242424242424242",
+    "expiry_month": 12,
+    "expiry_year": 2026,
+    "cvv": "123",
+    "cardholder_name": "Jane Doe",
+    "billing_address": {
+      "line1": "123 Main St",
+      "city": "New York",
+      "state": "NY",
+      "postal_code": "10001",
+      "country": "US"
+    }
+  }'
+```
+
+**Declined Card:**
+```bash
+curl -X POST http://localhost:8080/api/v1/payments/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payment_id": "payment-declined",
+    "merchant_id": "merchant-456",
+    "customer_id": "customer-789",
+    "amount": 100.00,
+    "currency": "USD",
+    "payment_method": "CREDIT_CARD",
+    "description": "Declined card test",
+    "card_number": "4000000000000002",
+    "expiry_month": 12,
+    "expiry_year": 2026,
+    "cvv": "123",
+    "cardholder_name": "Jane Doe",
+    "billing_address": {
+      "line1": "123 Main St",
+      "city": "New York",
+      "state": "NY",
+      "postal_code": "10001",
+      "country": "US"
+    }
+  }'
+```
+
+**Insufficient Funds:**
+```bash
+curl -X POST http://localhost:8080/api/v1/payments/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payment_id": "payment-insufficient",
+    "merchant_id": "merchant-456",
+    "customer_id": "customer-789",
+    "amount": 100.00,
+    "currency": "USD",
+    "payment_method": "CREDIT_CARD",
+    "description": "Insufficient funds test",
+    "card_number": "4000000000009995",
+    "expiry_month": 12,
+    "expiry_year": 2026,
+    "cvv": "123",
+    "cardholder_name": "Jane Doe",
+    "billing_address": {
+      "line1": "123 Main St",
+      "city": "New York",
+      "state": "NY",
+      "postal_code": "10001",
+      "country": "US"
+    }
+  }'
+```
+
+**Large Amount (Exceeds Limit):**
+```bash
+curl -X POST http://localhost:8080/api/v1/payments/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payment_id": "payment-large",
+    "merchant_id": "merchant-456",
+    "customer_id": "customer-789",
+    "amount": 15000.00,
+    "currency": "USD",
+    "payment_method": "CREDIT_CARD",
+    "description": "Large amount test",
+    "card_number": "4242424242424242",
+    "expiry_month": 12,
+    "expiry_year": 2026,
+    "cvv": "123",
+    "cardholder_name": "Jane Doe",
+    "billing_address": {
+      "line1": "123 Main St",
+      "city": "New York",
+      "state": "NY",
+      "postal_code": "10001",
+      "country": "US"
+    }
+  }'
+```
+
+### View Audit Logs
+
+Audit logs are written to the configured directory (`./payment-audit-logs` by default). To view logs in real time:
 
 ```bash
-curl http://localhost:8080/api/v1/payments/payment-123/status
+# View all audit logs
+tail -f ./payment-audit-logs/payment-*.log
+
+# View specific log file
+tail -f ./payment-audit-logs/payment-2024-01-15.log
+
+# View last 50 lines
+tail -50 ./payment-audit-logs/payment-*.log
 ```
+
+No Logstash or external log aggregator is required. All audit logs are local files.
 
 ### Health Check
 
@@ -240,61 +381,28 @@ curl http://localhost:8080/api/v1/payments/payment-123/status
 curl http://localhost:8080/api/v1/payments/health
 ```
 
-## Audit Log Files
-
-Audit logs are written to the configured directory (`./payment-audit-logs` by default) with the following structure:
-
-```
-payment-audit-logs/
-├── payment-2024-01-15.log
-├── payment-2024-01-16.log
-└── ...
-```
-
-Each log entry is a JSON object containing:
-- Timestamp
-- Event type and details
-- User and session information
-- Request/response data
-- Audit context information
+### Requirements
+- Java 8
+- Enterprise Audit Logging Library v1.x
+- No Logstash required
 
 ## Payment Processing Logic
 
-The service includes simulated payment processing logic:
+The service includes realistic payment processing logic through a simulated payment gateway:
 
-- **Successful Payments**: Amounts between $0.01 and $10,000
-- **Declined Payments**: Amounts over $10,000 or invalid payment methods
-- **Failed Payments**: Amounts under $0.01
+- **Successful Payments**: Most payments with valid card details (95%+ success rate)
+- **Declined Payments**: Specific test card numbers, expired cards, invalid CVV
+- **Failed Payments**: Network timeouts, gateway errors, insufficient funds
 - **Processing Fees**: 2.9% of amount with $0.30 minimum
+- **Realistic Delays**: 1-3 second processing time simulation
 
 ## Error Handling
 
 The application includes comprehensive error handling:
 
 - **Validation Errors**: Return 400 Bad Request with detailed messages
-- **Processing Errors**: Return 500 Internal Server Error
+- **Gateway Errors**: Return 500 Internal Server Error
 - **Audit Logging**: All errors are logged with appropriate audit events
-
-## Monitoring
-
-### Health Check
-
-The health check endpoint provides service status:
-```json
-{
-  "status": "UP",
-  "service": "payment-service",
-  "version": "1.0.0"
-}
-```
-
-### Logs
-
-Monitor application logs for:
-- Payment processing events
-- Audit logging activities
-- Error conditions
-- Performance metrics
 
 ## Security Considerations
 
@@ -302,7 +410,7 @@ Monitor application logs for:
 - Audit logging of all operations
 - Client IP tracking
 - User agent logging
-- Correlation ID for request tracing
+- Payment gateway abstraction for security
 
 ## Compliance Features
 
@@ -310,15 +418,4 @@ The audit logging provides compliance support for:
 - **PCI DSS**: Payment card industry compliance
 - **SOX**: Sarbanes-Oxley compliance
 - **GDPR**: Data protection compliance
-- **Internal Audits**: Operational compliance
-
-## Future Enhancements
-
-Potential improvements:
-- Database integration for payment storage
-- Real payment gateway integration
-- Authentication and authorization
-- Rate limiting
-- Metrics and monitoring
-- Docker containerization
-- Kubernetes deployment 
+- **Internal Audits**: Operational compliance 
