@@ -1,9 +1,10 @@
 package com.enterprise.audit.logging.model;
 
 import org.slf4j.MDC;
-
 import java.util.HashMap;
 import java.util.Map;
+import com.enterprise.audit.logging.model.AuditEvent;
+import com.enterprise.audit.logging.model.AuditResult;
 
 /**
  * Provides a context for storing audit-related information that should be 
@@ -178,17 +179,31 @@ public class AuditContext {
     }
 
     /**
-     * Populates an AuditEvent builder with context information.
+     * Creates an AuditEvent from the current context and provided parameters.
      */
-    public static AuditEvent.Builder populateBuilder(AuditEvent.Builder builder) {
-        return builder
-                .userId(getUserId())
-                .sessionId(getSessionId())
-                .correlationId(getCorrelationId())
-                .application(getApplication())
-                .component(getComponent())
-                .sourceIp(getSourceIp())
-                .userAgent(getUserAgent());
+    public static AuditEvent fromContext(
+            String event_type,
+            String action,
+            String resource,
+            AuditResult result,
+            String message,
+            Map<String, Object> details) {
+        return new AuditEvent(
+            null, // timestamp (will default to now)
+            event_type,
+            getUserId(),
+            getSessionId(),
+            getApplication(),
+            getComponent(),
+            action,
+            resource,
+            result,
+            message,
+            details,
+            getCorrelationId(),
+            getSourceIp(),
+            getUserAgent()
+        );
     }
 
     /**

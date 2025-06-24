@@ -6,15 +6,13 @@
 
     <groupId>com.enterprise</groupId>
     <artifactId>audit-logging-library</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
     <packaging>jar</packaging>
 
     <name>Enterprise Audit Logging Library</name>
     <description>A reusable Java component for consistent and traceable audit logging in enterprise environments</description>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         
         <!-- Dependency versions -->
@@ -63,7 +61,7 @@
         <!-- SLF4J Log4j implementation for MDC support in tests -->
         <dependency>
             <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-log4j12</artifactId>
+            <artifactId>slf4j-reload4j</artifactId>
             <version>${slf4j.version}</version>
             <scope>test</scope>
         </dependency>
@@ -76,8 +74,9 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.8.1</version>
                 <configuration>
-                    <source>8</source>
-                    <target>8</target>
+                    <release>21</release>
+                    <source>21</source>
+                    <target>21</target>
                 </configuration>
             </plugin>
 
